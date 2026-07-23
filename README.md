@@ -110,6 +110,19 @@ Higher concurrent mainly **heats**; demand often only 3–4 jobs on laptops. **8
 
 See [Disclaimer](#disclaimer): RAM alone is not enough; bandwidth + network matter.
 
+### Fan control (any supported Mac)
+
+Opt-in experimental CLI — **not** in `provider.toml`. Not laptop-only; portables often need it most under continuous serve.
+
+```bash
+darkbloom fan diagnose          # check compatibility first
+darkbloom fan enable            # admin password; defaults ~80% speed @ 45°C GPU
+darkbloom fan status
+# darkbloom fan disable         # restore macOS automatic
+```
+
+Full detail: [`guide.md` — Fan control](./guide.md#fan-control-thermals--all-apple-silicon-providers).
+
 ---
 
 ## 05 · Earnings-max profile
@@ -124,6 +137,7 @@ Reliable baseline knobs:
 - `enabled_models` pinned (gemma and/or gpt-oss only)  
 - concurrent modest (see §04)  
 - hardware trust / online  
+- **thermals:** `darkbloom fan diagnose` → optional `fan enable` if supported and you run warm continuously  
 
 Example TOML: [`config/examples/provider-earnings-max.toml`](./config/examples/provider-earnings-max.toml)
 
@@ -171,6 +185,8 @@ darkbloom beta enable mtp
 darkbloom restart
 darkbloom models catalog
 darkbloom models list
+darkbloom fan diagnose
+darkbloom fan status
 ```
 
 ---

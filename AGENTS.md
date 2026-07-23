@@ -56,6 +56,7 @@ These are load-bearing; if the live catalog contradicts them, **say so** and fol
 - **Dedicated earn boxes:** `idle_timeout_mins = 0` so models stay warm.
 - **Gemma speed:** MTP on via `darkbloom beta enable mtp` when serving gemma (if still available).
 - **Reliability > throughput cosplay.** Deadlines and reduced priority lose tomorrow’s jobs.
+- **Fan control (optional, all hardware):** experimental `darkbloom fan` — **not** a `provider.toml` key. Not laptop-only; portables often benefit most. Always `darkbloom fan diagnose` before enable; admin password for root helper.
 
 ## Hardware / network honesty (always surface)
 
@@ -66,6 +67,20 @@ When recommending hardware, concurrent, or dual-warm:
 - **Stable, high-speed internet is critical** — flaky links → timeouts → reduced priority.
 - Guide concurrent bands and Mac examples are **starting points**, not guarantees.
 - **No earnings promises** and no “buy this Mac and make $X.”
+- Under heat / reduced priority: cut concurrent **and** consider `darkbloom fan diagnose` → optional `fan enable` (if supported). Do not invent TOML fan settings.
+
+### Fan CLI (quick)
+
+```bash
+darkbloom fan diagnose
+darkbloom fan enable --speed 80 --temperature 45   # admin prompt; defaults similar
+darkbloom fan status
+darkbloom fan configure --speed 75 --temperature 50
+darkbloom fan disable
+# darkbloom fan uninstall
+```
+
+See `guide.md` § Fan control for full caveats.
 
 ## Config paths (provider machine)
 
@@ -88,7 +103,7 @@ Backup `provider.toml` before edits. Prefer surgical TOML changes + `darkbloom r
 |---------|-------------|
 | Zero jobs but doctor green | Quiet demand or reputation lag — wait; confirm console fleet; avoid restart thrash |
 | Warm empty / `model_not_loaded` | Preload, idle 0, exact model id, local kick via `--local-endpoint` |
-| Reduced priority / 120s deadlines | Cut concurrent; drop second model; cool machine; stay online |
+| Reduced priority / 120s deadlines | Cut concurrent; drop second model; cool machine; `fan diagnose` / optional enable; stay online |
 | After update looks colder | Stay warm; cache epoch may rebuild — don’t thrash restarts |
 
 Always re-check: `darkbloom doctor`, `darkbloom status`, console priority / 24h tokens (CLI counters **reset on restart**).

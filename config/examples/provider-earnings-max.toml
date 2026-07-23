@@ -1,6 +1,10 @@
 # Darkbloom provider — earnings-max baseline (example)
 # Copy to ~/.config/darkbloom/provider.toml and edit name / models / concurrent.
 # Verified against public alpha ~0.7.12 — re-check after upgrades.
+#
+# Fan control is NOT configured here. Optional (any supported Mac):
+#   darkbloom fan diagnose && darkbloom fan enable
+# See guide.md § Fan control.
 
 [backend]
 # Pin allowlist — do not leave empty with extra local weights on disk.

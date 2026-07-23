@@ -300,7 +300,7 @@ v0.7.12 restored exact hybrid SSD prefix reuse for contiguous unquantized Gemma/
 - Stay on **auto_update** (watchdog + predecessor rollback is the safety net).
 - Keep models **warm** (`idle_timeout_mins = 0` on dedicated earn boxes).
 - Prefer **fewer concurrent jobs finishing fast** over many jobs timing out.
-- Keep the machine cool enough that you don’t thermal-throttle mid-stream.
+- Keep the machine cool enough that you don’t thermal-throttle mid-stream (`darkbloom fan diagnose` / optional `fan enable` — see below).
 - After any bad spell: **wait online**, don’t config-thrash.
 
 ### Avoid these
@@ -316,11 +316,62 @@ v0.7.12 restored exact hybrid SSD prefix reuse for contiguous unquantized Gemma/
 | Leaving laptop sleep / no auto-login | Invisible offline hours |
 | Ignoring reduced priority for days | You silently fall out of the good queue |
 
-### Thermals (especially laptops)
+### Thermals
 
-- Elevated fans under load are normal.
-- Sustained thermal + “reduced priority” → lower concurrent, elevate chassis, check Energy Mode.
-- Experimental: `darkbloom fan status` / fan policy (root helper). Only if you understand the risk; not required for earnings.
+Elevated fans under sustained inference are normal. Sustained heat + thermal throttle often shows up as timeouts and **reduced priority** — lower concurrent, improve airflow/ventilation, stay plugged in, and consider fan control below.
+
+### Fan control (thermals) — all Apple Silicon providers
+
+Darkbloom ships **opt-in experimental** temperature-based fan control. It is **not** laptop-only: any supported Mac can use it. **Portables often benefit most** (thinner chassis, more throttle under continuous warm serve); Studio/mini/desktop boxes can enable it too when automatic fans lag under load.
+
+| Fact | Detail |
+|------|--------|
+| Default | **Off** — macOS automatic fan control |
+| Not in | `provider.toml` (CLI + privileged helper only) |
+| Enable | Installs a narrowly scoped **root helper** — admin password required |
+| When it acts | Only while a **signed Darkbloom provider is active** and a validated **GPU sensor is hot enough** |
+| Knobs | `--speed` 60–90% of each fan’s max (default **80**); `--temperature` °C engage threshold (default **45**) |
+| Undo | `darkbloom fan disable` (restore automatic) · `darkbloom fan uninstall` (remove helper) |
+
+**Always diagnose first** (compatibility varies by chip/sensor map):
+
+```bash
+darkbloom fan diagnose
+# or: darkbloom fan status
+```
+
+If `Compatibility: supported` (or equivalent) and you want more aggressive cooling while earning:
+
+```bash
+# defaults: --speed 80 --temperature 45  (admin prompt)
+darkbloom fan enable
+
+# or explicit:
+darkbloom fan enable --speed 80 --temperature 45
+
+darkbloom fan status
+```
+
+Tune after enable:
+
+```bash
+darkbloom fan configure --speed 75 --temperature 50
+```
+
+Back to stock macOS fans:
+
+```bash
+darkbloom fan disable
+# fully remove helper:
+# darkbloom fan uninstall
+```
+
+**Caveats**
+
+- Experimental — can be **louder**; not required if thermals and priority stay healthy on automatic.
+- Does **not** replace modest concurrent, good ventilation, or a plugged-in always-on setup.
+- Re-check after provider upgrades: `darkbloom help fan` (subcommand surface can move in alpha).
+- Policy on disk (root): `/Library/Application Support/Darkbloom/fan-policy.json` when installed.
 
 ---
 
@@ -410,7 +461,7 @@ Doctor RAM estimate can lag reality. Prefer live `status` + console if traffic i
 
 ### Profile A — Dedicated Studio ≥128 GB (max reliable tokens)
 
-- Models: **`gemma-4-26b-qat-4bit` + `gpt-oss-20b`** (gemma-first dual-warm)
+- Models: **`gemma-4-26b-qat-4bit` + `gpt-oss-20b`** (gemma-first dual-warm) — concurrent bands in this guide are gemma-first; dual-warm only if healthy
 - Recommended RAM: **192–512 GB** class
 - Concurrent: **8**
 - Idle: **0**
@@ -419,6 +470,7 @@ Doctor RAM estimate can lag reality. Prefer live `status` + console if traffic i
 - MLX env reserve: **~32** on 512 GB (tune to leave OS comfortable)
 - Auto login: **on**
 - Auto update / restart: **on**
+- **Fan control:** optional if automatic cooling lags under continuous load (`darkbloom fan diagnose` first)
 
 ### Profile B — Laptop / mini ≥48 GB (earn without melting)
 
@@ -429,6 +481,7 @@ Doctor RAM estimate can lag reality. Prefer live `status` + console if traffic i
 - MTP: **on**
 - MLX env reserve: **higher** (e.g. 40 on 128 GB) so the machine stays usable
 - Auto login: strongly recommended if it’s a dedicated earn lid-open box
+- **Fan control:** `darkbloom fan diagnose` → optional `fan enable` (experimental; highly useful on continuous laptop serve; also fine on desktops)
 
 ### Profile C — Small Mac 24–32 GB (gpt-oss path)
 
