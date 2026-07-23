@@ -8,6 +8,7 @@ This repo is for other **Darkbloom providers** who already installed the CLI and
 |--|--|
 | **Last verified** | 2026-07-22 · provider **0.7.12** |
 | **Full guide** | [`guide.md`](./guide.md) |
+| **For coding agents** | [`AGENTS.md`](./AGENTS.md) — point Claude / Cursor / Codex / Grok at this repo |
 | **Source graphics** | [`assets/Darkbloom-Provider-Guide-Graphics.tldraw`](./assets/Darkbloom-Provider-Guide-Graphics.tldraw) |
 | **Darkbloom** | [darkbloom.dev](https://www.darkbloom.dev/) · [console](https://console.darkbloom.dev/) · [install](https://api.darkbloom.dev/install.sh) |
 
@@ -33,6 +34,13 @@ Public alpha software. Not financial advice. Demand and policy change.
 ## How to use this page
 
 Cards are in **order**. Skim the graphic, read the short notes, move on. Deep detail lives in [`guide.md`](./guide.md).
+
+**Using a local coding agent?** Open this repo (or paste the path) and tell it to follow [`AGENTS.md`](./AGENTS.md). Example:
+
+```text
+Read AGENTS.md and guide.md. Apply the earnings-max profile to this Mac:
+run darkbloom status/doctor/catalog, then propose a minimal provider.toml change.
+```
 
 ---
 
@@ -172,6 +180,7 @@ darkbloom models list
 ```text
 README.md                 ← this page (cards + short text)
 guide.md                  ← full operator guide
+AGENTS.md                 ← rules for coding agents pointed at this repo
 assets/cards/01…07.png    ← exported panels
 assets/*.tldraw           ← editable source board
 config/examples/          ← sample provider.toml
