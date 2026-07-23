@@ -1,0 +1,505 @@
+# Darkbloom Provider Guide: Maximize Earnings (Without Breaking Your Node)
+
+**Audience:** other Apple Silicon providers who already installed Darkbloom and want to earn more reliably.  
+**Based on:** a two-machine fleet (Mac Studio M3 Ultra 512 GB + MacBook Pro M5 Max 128 GB) run hard through public alpha (v0.7.x, through **0.7.12**).  
+**Last verified:** 2026-07-22 on Studio `darkbloom-mac15-14` (catalog/pricing re-checked same day).
+
+---
+
+## 0. The one rule that matters
+
+**Maximize finished tokens × success rate × hours online.**
+
+Not:
+
+- max concurrent jobs
+- max models loaded
+- max GPU cache size
+- “looks busy” in Activity Monitor
+
+The coordinator routes work to machines that **finish cleanly**. Deadlines, mid-stream cancels, OOM, tool-call failures, and “reduced priority” all cut your share of future traffic. Aggressive concurrent that causes failures usually **earns less** than a boring, always-warm, full-priority node.
+
+**Disclaimer — results vary by hardware.** Unified RAM is only one constraint. Memory **bandwidth / throughput**, thermals, and sustained power also decide finished tokens. A **stable, high-speed internet connection is critical** — weak or flaky links cause timeouts, reduced priority, and fewer jobs. Numbers and concurrent bands in this guide are starting points from one fleet’s experience, **not guarantees**.
+
+---
+
+## 1. What actually pays (mental model)
+
+Three layers, in practice:
+
+1. **Eligibility** — hardware trust, MDM/attestation, console login, online, not sleeping.  
+   If this fails, you earn ~nothing. Fix this before tuning models.
+2. **Routable capacity** — correct network models warm, not cold after idle; version current; reputation healthy.  
+   This is most of what “earnings max” optimizes.
+3. **Organic token work** — real inference demand.  
+   Demand is still the binding constraint in public alpha. No config turns a quiet network into a full-time job.
+
+**CLI vs console:**  
+`darkbloom status` counters **reset on every restart**. Use the web console for 24h / lifetime tokens and $. CLI is for “is this box healthy right now?”
+
+**Pricing / floors change.** Check live pricing and your own console before making hardware decisions. Do **not** buy a Mac expecting calculator best-case.
+
+Hardware and network still bound layer 2: more RAM does not fix low memory bandwidth, hot chassis, or a bad uplink. See the disclaimer under §0 and the concurrent / hardware sections.
+
+---
+
+## 2. Prerequisites checklist (eligibility first)
+
+Run until green:
+
+```bash
+darkbloom doctor
+darkbloom verify
+darkbloom status
+```
+
+You want roughly:
+
+- **Trust:** `hardware / online` (or the current top tier that says eligible for traffic)
+- **MDM / enrollment** present if required for your account
+- **Console session logged in** (APNs code-identity needs a real user session)
+- **Automatic login** on dedicated earn boxes (reboot → auto login → attest without a human)
+- **No idle auto-logout** killing the console session
+- **Sleep prevented** while serving (provider should self-caffeinate; still check Energy settings)
+- **SIP / Secure Boot / hardened runtime** healthy (doctor flags these)
+- **Up to date:** `darkbloom update --check-only` → current (0.7.12+ as of this writing)
+
+### Shared / laptop gotchas
+
+| Problem | Why it kills earnings | Fix |
+|--------|------------------------|-----|
+| No user logged in after reboot | Can’t attest / stay trusted | Enable auto-login for the provider user on always-on machines |
+| Lid closed / sleep | Offline or reduced readiness | Keep plugged in, prevent sleep, Power Nap is not enough |
+| Heavy local work competing for RAM/GPU | Timeouts → reduced priority | Cap concurrent; park browsers/AI apps; leave headroom |
+| Unenrolled / software-only trust | Less or no private/fleet traffic | Complete MDM enroll + keep profile installed |
+
+---
+
+## 3. Model strategy (only two models)
+
+**Serve only these. Nothing else.**
+
+### Catalog + recommended RAM (verify with `darkbloom models catalog`)
+
+Live catalog floors and practical “runs well warm” guidance (2026-07-22):
+
+| Model ID | Role | Weights (est.) | Catalog min RAM | **Recommended unified RAM** | Notes |
+|----------|------|----------------|-----------------|----------------------------|--------|
+| **`gemma-4-26b-qat-4bit`** | **Primary earner** | ~15.6 GB | ≥ **36 GB** | **≥ 48 GB** (sweet: **64–128 GB+**) | Higher $/token (~$0.03 / $0.165 per 1M). Default when you meet min RAM. |
+| **`gpt-oss-20b`** | **Small-box / fill-in** | ~12.1 GB | ≥ **24 GB** | **≥ 32 GB** (fine on **24–36 GB** if that’s all you have) | Lower $/token (~$0.0145 / $0.07). Fits machines that can’t run gemma. Dual-warm on big boxes for extra job types. |
+
+Also in catalog but **not** this playbook’s defaults:
+
+| Model ID | Catalog min RAM | Why skip for max-earn default |
+|----------|-----------------|-------------------------------|
+| `gemma-4-26b` | ≥ 36 GB | Larger (~28 GB weights); qat-4bit is the usual network path |
+| `gemma-4-26b-8bit` | ≥ **64 GB** | Rollback path; heavier than qat-4bit |
+
+**Do not invert this:** gpt-oss is the **smaller-RAM** model. Gemma is the **better-paid workhorse** once you clear ~36 GB (ideally 48 GB+ for headroom).
+
+### Pick by machine size
+
+| Unified RAM | Serve | Why |
+|-------------|-------|-----|
+| **24–32 GB** | **`gpt-oss-20b` only** | Below gemma’s 36 GB catalog floor |
+| **36–47 GB** | **`gemma-4-26b-qat-4bit` only** (preferred) *or* gpt-oss if gemma is unstable | Meets gemma min; dual-warm is tight |
+| **48–128 GB** | **`gemma-4-26b-qat-4bit` primary**; add **gpt-oss** only if dual-warm stays clean | Gemma earns more per token; gpt-oss is optional fill |
+| **192–512 GB** | **gemma + gpt-oss** dual-warm when healthy | Big iron buys concurrent + dual job types — still **gemma-first** |
+
+Do **not** download, warm, advertise, or leave `enabled_models` open to any other weights for fleet serving. Extra models waste disk, risk bad loads, and do not help earnings under this playbook.
+
+Rules of thumb:
+
+- Pin the allowlist in config (see §4) so auto-select cannot pick strays.
+- **Default = gemma** whenever RAM ≥ 36 GB (recommend ≥ 48 GB).
+- **gpt-oss** = small machines *or* second warm model on large machines — not “big RAM only.”
+- If disk is tight, remove every other local MLX weight.
+
+### Start command pattern (earnings-max)
+
+```bash
+# ≥36–48 GB+ — gemma primary, stay warm forever
+darkbloom start \
+  --model gemma-4-26b-qat-4bit \
+  --idle-timeout 0 \
+  --local-endpoint
+```
+
+```bash
+# 24–32 GB only (or gemma won’t load) — gpt-oss only
+darkbloom start \
+  --model gpt-oss-20b \
+  --idle-timeout 0 \
+  --local-endpoint
+```
+
+```bash
+# Large box (≈128 GB+) — dual-warm when both stay healthy
+darkbloom start \
+  --model gemma-4-26b-qat-4bit \
+  --model gpt-oss-20b \
+  --idle-timeout 0 \
+  --local-endpoint
+```
+
+**Why `--local-endpoint`:** keeps a local OpenAI endpoint on the same loaded models. Useful for:
+
+- self-tests / “warm kick” if Warm list is empty but models are advertised
+- verifying the engine without waiting for fleet traffic
+
+Kick example (after `darkbloom local` for the key):
+
+```bash
+# Replace KEY and port from `darkbloom local`
+curl -s http://127.0.0.1:8000/v1/chat/completions \
+  -H "Authorization: Bearer KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemma-4-26b-qat-4bit","messages":[{"role":"user","content":"ping"}],"max_tokens":16}'
+```
+
+---
+
+## 4. Config profile that actually works
+
+Edit: `~/.config/darkbloom/provider.toml`
+
+### Earnings-max (reliable) — recommended baseline
+
+```toml
+[backend]
+# Allowlist only — do not leave empty (empty can auto-select other local weights).
+# ≥48 GB+ dual-warm example:
+enabled_models = ["gemma-4-26b-qat-4bit", "gpt-oss-20b"]
+# 36–128 GB gemma-only (most machines that clear gemma min):
+# enabled_models = ["gemma-4-26b-qat-4bit"]
+# 24–32 GB small box (below gemma catalog floor):
+# enabled_models = ["gpt-oss-20b"]
+engine_v2_kv_backend = "auto"
+engine_v2_max_concurrent = 8   # Studio-class; see table below
+idle_timeout_mins = 0          # NEVER unload when quiet
+kv_quant = false               # still rejected / not a free win as of 0.7.x
+max_model_slots = 2            # 1 if single-model
+mtp = true                     # or: darkbloom beta enable mtp  (Gemma)
+port = 8100
+startup_preload = true
+startup_preload_timeout_secs = 180
+startup_selftest = true
+startup_selftest_fail_closed = false
+
+[coordinator]
+heartbeat_interval_secs = 5
+private_only = false
+url = "wss://api.darkbloom.dev/ws/provider"
+
+[provider]
+auto_restart = true
+auto_update = true
+memory_reserve_gb = 4          # toml reserve — keep modest
+name = "your-provider-name"
+update_jitter_seconds = 300
+```
+
+Then:
+
+```bash
+darkbloom beta enable mtp
+darkbloom restart
+darkbloom doctor
+```
+
+### Concurrent caps by machine class (hard-won)
+
+Grouped by **unified RAM** (what the catalog cares about), with example Mac configs. **No pricing** — configs change; verify About This Mac.
+
+#### 36–128 GB · gemma primary · concurrent **2–4**
+
+| Product | Chip examples | RAM configs in this band |
+|---------|---------------|--------------------------|
+| Mac mini | M4 Pro | 48 GB |
+| MacBook Pro | M3 Pro | 36 GB |
+| MacBook Pro | M3 Max | 36 · 48 · 64 · 128 GB |
+| MacBook Pro | M4 Max | 36 · 48 · 64 · 128 GB |
+| MacBook Pro | M5 Pro | 48 GB |
+| MacBook Pro | M5 Max | 48 · 64 · 128 GB |
+| Mac Studio | M1 Max | 64 GB |
+| Mac Studio | M1 Ultra | 64 · 128 GB |
+| Mac Studio | M2 Max | 64 · 96 GB |
+| Mac Studio | M2 Ultra | 64 · 128 GB |
+| Mac Studio | M4 Max | 36 · 64 · 128 GB |
+| Mac Studio | M3 Ultra | 96 GB |
+| Mac Pro | M2 Ultra | 64 GB |
+
+Notes: recommend **≥48 GB** for comfortable gemma headroom (catalog min 36 GB). Higher concurrent mainly **heats**; demand often only 3–4 jobs.
+
+#### 192–512 GB · gemma · concurrent **6–8**
+
+| Product | Chip examples | RAM configs in this band |
+|---------|---------------|--------------------------|
+| Mac Studio | M2 Ultra | 192 GB |
+| Mac Studio | M3 Ultra | 256 · 512 GB |
+| Mac Pro | M2 Ultra | 192 GB |
+
+Notes: **gemma-4-26b-qat-4bit** only for this concurrent band. **8** was stable for long token runs.
+
+**Disclaimer — results vary by hardware.** Unified RAM is only one constraint. Memory **bandwidth / throughput**, thermals, and sustained power also decide finished tokens. A **stable, high-speed internet connection is critical** — weak or flaky links cause timeouts, reduced priority, and fewer jobs. Concurrent bands above are starting points from one fleet’s experience, not guarantees.
+
+If the console shows **reduced priority** or logs show `request exceeded 120s deadline`:
+
+1. Drop concurrent one step (8→4 or 4→2).
+2. Stay online and warm 30–60+ minutes.
+3. Do **not** thrash restarts — restarts reset session stats and can slow recovery.
+
+### Two different “memory reserve” knobs
+
+| Knob | Where | What it does |
+|------|--------|--------------|
+| `memory_reserve_gb` | `provider.toml` | Provider-side reserve; keep modest (e.g. **4**) for max serve budget |
+| `DARKBLOOM_MLX_MEMORY_RESERVE_GB` | **process environment** | MLX ceiling / how much RAM to leave for the OS and other apps. **Higher = less MLX budget** |
+
+Example env targets used successfully:
+
+- Studio 512 GB: `DARKBLOOM_MLX_MEMORY_RESERVE_GB=32` (~lots of cache headroom still available)
+- Laptop 128 GB: `DARKBLOOM_MLX_MEMORY_RESERVE_GB=40` (protect the rest of the machine)
+
+**Gotcha:** `darkbloom start` rewrites the LaunchAgent and can **strip** `EnvironmentVariables`. After start, verify the live process:
+
+```bash
+pgrep -lf darkbloom
+# inspect env on the pid:
+ps eww -p <PID> | tr ' ' '\n' | grep DARKBLOOM_MLX
+```
+
+If the env keeps disappearing, wrap ProgramArguments with `/usr/bin/env DARKBLOOM_MLX_MEMORY_RESERVE_GB=…` in the LaunchAgent (backup the plist first).
+
+### Beta features
+
+```bash
+darkbloom beta list
+darkbloom beta enable mtp      # Gemma 4 drafter-assisted decode — faster, token-identical
+# kv-quant: leave OFF until doctor/beta says it actually works for your version
+```
+
+As of 0.7.12: **mtp = on is a real speed win** for Gemma; **kv-quant still rejected / not a free earnings boost**.
+
+### Prefix / SSD cache (0.7.12+)
+
+v0.7.12 restored exact hybrid SSD prefix reuse for contiguous unquantized Gemma/GPT layouts. That can cut repeated long-prompt latency a lot once the new cache epoch fills.
+
+- First hours after upgrade may look colder (epoch rotation purges old blocks).
+- Don’t chase this with restarts; let warm traffic rebuild cache.
+- Paged / quantized layouts may still be cold by design.
+
+---
+
+## 5. Reliability = reputation = more work
+
+### Do these
+
+- Stay on **auto_update** (watchdog + predecessor rollback is the safety net).
+- Keep models **warm** (`idle_timeout_mins = 0` on dedicated earn boxes).
+- Prefer **fewer concurrent jobs finishing fast** over many jobs timing out.
+- Keep the machine cool enough that you don’t thermal-throttle mid-stream.
+- After any bad spell: **wait online**, don’t config-thrash.
+
+### Avoid these
+
+| Anti-pattern | Why it hurts |
+|--------------|--------------|
+| Concurrent 16–24 “because I have RAM” | Deadlines / reduced priority |
+| Advertising models that never load | `model_not_loaded` self-routes, wasted reputation |
+| Default idle unload (60m) on a quiet network | Every new job pays cold-start tax; you lose TTFT races |
+| Any model besides gemma-4-26b-qat-4bit / gpt-oss-20b | Disk waste, load risk, no benefit under this playbook |
+| Leaving `enabled_models` empty with other weights on disk | Auto-select can advertise junk you never warm |
+| Restarting to “clear cache” without a live failure | Loses warm state + session metrics |
+| Leaving laptop sleep / no auto-login | Invisible offline hours |
+| Ignoring reduced priority for days | You silently fall out of the good queue |
+
+### Thermals (especially laptops)
+
+- Elevated fans under load are normal.
+- Sustained thermal + “reduced priority” → lower concurrent, elevate chassis, check Energy Mode.
+- Experimental: `darkbloom fan status` / fan policy (root helper). Only if you understand the risk; not required for earnings.
+
+---
+
+## 6. Daily / weekly ops (10 minutes)
+
+### Daily
+
+```bash
+darkbloom status
+darkbloom doctor
+# optional: darkbloom logs | tail
+```
+
+Green flags:
+
+- Daemon running, trust eligible
+- Warm models list non-empty (for your intended models)
+- Requests/tokens climbing over hours (not stuck at 0 after a long quiet period *and* console also dead)
+
+### After every update
+
+```bash
+darkbloom update --check-only
+darkbloom doctor
+darkbloom status
+# confirm warm + hardware trust
+```
+
+Watchdog promotes only after a stabilization window (~10 min). Predecessor binaries live under `~/.darkbloom/recovery/` for rollback.
+
+### Weekly
+
+- Console: 24h tokens, success rate, priority, payouts.
+- Disk: remove every local model that is not gemma-4-26b-qat-4bit or gpt-oss-20b (`darkbloom models remove <id>`).
+- Confirm auto-login / MDM still healthy after macOS updates.
+
+---
+
+## 7. Troubleshooting playbook
+
+### A) Online + trusted + warm, but zero jobs
+
+Often **quiet demand** or **temporary reputation lag**, not bad TOML.
+
+1. Confirm console fleet is also quiet (not just you).
+2. Wait 15–60 minutes without restarting.
+3. Local kick once via `--local-endpoint` if Warm is empty but you expected load.
+4. Only then dig logs for deadline / tool-call / OOM patterns.
+
+### B) Advertised but Warm empty / `model_not_loaded`
+
+1. Check `startup_preload = true` and idle timeout 0.
+2. Local chat completion to force load.
+3. Confirm model id is exactly `gemma-4-26b-qat-4bit` or `gpt-oss-20b` (and is in `enabled_models`).
+
+### C) Reduced priority / many 120s deadlines
+
+1. Cut concurrent (half it).
+2. Drop second model if dual-warm.
+3. Reduce competing local GPU/RAM apps.
+4. Stay warm; let reputation recover.
+
+### D) Doctor says “model fits in RAM FAIL” but status is warm and serving
+
+Doctor RAM estimate can lag reality. Prefer live `status` + console if traffic is flowing.
+
+### E) After `darkbloom start`, settings “forgot”
+
+- TOML is source of truth for most knobs.
+- LaunchAgent args + MLX env can be rewritten by start — re-verify plist and process env.
+
+---
+
+## 8. Hardware honesty (read before buying another Mac)
+
+**Results vary.** RAM gets you into the model band; **memory bandwidth / throughput** is what usually drives tokens/sec; thermals and power decide whether you sustain it. **Stable, high-speed internet is critical** — the coordinator cannot route finished work through a flaky link. Same chip + same RAM can earn very differently on different networks or duty cycles.
+
+- **Organic $ scales with real demand and usable bandwidth**, not “I have 512 GB.”
+- Extra RAM mostly buys: **gemma eligibility** (36 GB floor, 48 GB+ recommended), dual-warm gemma + gpt-oss, more concurrent/KV cache, higher **floor tiers** (if floors still exist) — not free money from random other models.
+- **Always-on desktop/Studio** beats a laptop that sleeps, leaves home, or thermal-throttles.
+- Alpha-era floors / subsidies (if any) are **temporary policy**, not a product guarantee. Never finance hardware on subsidy math.
+- Best second node historically for raw $/bandwidth: used high-bandwidth Ultra-class — **only after** your first node shows real utilization for weeks.
+
+---
+
+## 9. Copy-paste profiles
+
+### Profile A — Dedicated Studio ≥128 GB (max reliable tokens)
+
+- Models: **`gemma-4-26b-qat-4bit` + `gpt-oss-20b`** (gemma-first dual-warm)
+- Recommended RAM: **192–512 GB** class
+- Concurrent: **8**
+- Idle: **0**
+- MTP: **on** (gemma)
+- `memory_reserve_gb`: **4**
+- MLX env reserve: **~32** on 512 GB (tune to leave OS comfortable)
+- Auto login: **on**
+- Auto update / restart: **on**
+
+### Profile B — Laptop / mini ≥48 GB (earn without melting)
+
+- Model: **`gemma-4-26b-qat-4bit` only** (add gpt-oss only if dual-warm stays clean)
+- Recommended RAM: **48–128 GB** (catalog min for gemma is 36 GB)
+- Concurrent: **2–4**
+- Idle: **0** if always plugged and docked; else 15–30 if you need RAM back when idle
+- MTP: **on**
+- MLX env reserve: **higher** (e.g. 40 on 128 GB) so the machine stays usable
+- Auto login: strongly recommended if it’s a dedicated earn lid-open box
+
+### Profile C — Small Mac 24–32 GB (gpt-oss path)
+
+- Model: **`gpt-oss-20b` only** (gemma catalog floor is 36 GB)
+- Recommended RAM: **≥ 32 GB** (catalog min 24 GB)
+- Concurrent: **1–2**
+- Idle: **0** if dedicated; else 15–30 if shared
+- Don’t force gemma below 36 GB
+
+### Profile D — Shared family Mac (minimize friction)
+
+- Model: **gemma** if ≥48 GB, else **gpt-oss**
+- Concurrent: **1–2**
+- Idle unload: **15–30** so the machine frees RAM for humans
+- Don’t fight thermals or UI lag for a few extra tokens
+- Accept lower earnings for lower household pain
+
+---
+
+## 10. Minimal command card
+
+```bash
+darkbloom status
+darkbloom doctor
+darkbloom verify
+darkbloom logs
+darkbloom report          # upload logs to coordinator when stuck
+darkbloom local          # local endpoint + API key
+darkbloom update
+darkbloom beta enable mtp
+darkbloom restart
+darkbloom models list          # should only show gemma / gpt-oss for this playbook
+```
+
+Config: `~/.config/darkbloom/provider.toml`  
+State: `~/.darkbloom/daemon-state.json`  
+Logs: `~/.darkbloom/provider.log`, unified logging via `darkbloom logs`  
+LaunchAgent: `~/Library/LaunchAgents/io.darkbloom.provider.plist`  
+Watchdog: `~/Library/LaunchAgents/io.darkbloom.watchdog.plist`
+
+---
+
+## 11. What “good” looks like
+
+Healthy earning node:
+
+- `doctor` all green on trust + traffic readiness
+- Warm list shows the model(s) you intend to serve
+- Version current; watchdog not flapping versions
+- Console priority normal / full (not stuck reduced)
+- Tokens accumulate over the day **without** constant restarts
+- Thermals boring; fans may spin, machine doesn’t crash
+
+Unhealthy “busy” node:
+
+- High concurrent, many timeouts
+- Models advertised but never warm
+- Frequent restarts to “fix” things
+- Reduced priority for hours after a bad config experiment
+
+---
+
+## 12. Shareable one-liner for other providers
+
+> Stay hardware-trusted. Gemma-4-26b-qat-4bit is the primary earner (catalog ≥36 GB, recommend ≥48 GB). gpt-oss-20b is for 24–32 GB boxes or dual-warm fill on large machines—not “big RAM only.” Keep models warm (idle 0), enable MTP on gemma, modest concurrent (≈2 small / ≈4 laptop / ≈8 desktop), auto-update. Finished tokens win; failed jobs lose tomorrow’s routing.
+
+---
+
+## Assumptions & verification
+
+- **Observed:** catalog mins (gpt-oss ≥24 GB, gemma-qat ≥36 GB, gemma-8bit ≥64 GB); live $/1M prices; author fleet gemma-primary; concurrent caps; auto-login; concurrent-24 reduced priority; LaunchAgent MLX env strip; 0.7.12 SSD cache.
+- **Derived:** “recommended RAM” headroom bands (48 GB+ for comfortable gemma; 32 GB+ for gpt-oss); dual-warm only on large machines.
+- **Assumed / re-check live:** demand mix week to week, floors/subsidies, cache-routing flags — run `darkbloom models catalog` after upgrades.
+- Re-check after every major provider release: `darkbloom beta list`, release notes on `Layr-Labs/d-inference`, and your console priority.
+
+**Not financial advice. Public alpha software. Demand and policy change.**
