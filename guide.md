@@ -4,6 +4,8 @@
 **Based on:** a two-machine fleet (Mac Studio M3 Ultra 512 GB + MacBook Pro M5 Max 128 GB) run hard through public alpha (v0.7.x, through **0.7.12**).  
 **Last verified:** 2026-07-22 on Studio `darkbloom-mac15-14` (catalog/pricing re-checked same day).
 
+**Independent advice.** Not affiliated with Darkbloom (darkbloom.dev) or Eigen Labs (eigenlabs.org). Not official documentation. Darkbloom / Eigen Labs names and marks belong to their owners. Use at your own risk.
+
 ---
 
 ## 0. The one rule that matters
@@ -502,4 +504,5 @@ Unhealthy “busy” node:
 - **Assumed / re-check live:** demand mix week to week, floors/subsidies, cache-routing flags — run `darkbloom models catalog` after upgrades.
 - Re-check after every major provider release: `darkbloom beta list`, release notes on `Layr-Labs/d-inference`, and your console priority.
 
+**Independent advice — not affiliated with Darkbloom or Eigen Labs; not official docs.**  
 **Not financial advice. Public alpha software. Demand and policy change.**

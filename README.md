@@ -15,6 +15,8 @@ This repo is for other **Darkbloom providers** who already installed the CLI and
 
 ## Disclaimer
 
+**Independent advice.** Not affiliated with Darkbloom ([darkbloom.dev](https://www.darkbloom.dev/)) or Eigen Labs ([eigenlabs.org](https://www.eigenlabs.org/)). Not official documentation. Darkbloom / Eigen Labs names and marks belong to their owners. Use at your own risk.
+
 **Results vary by hardware.** Unified RAM is only one constraint. Memory **bandwidth / throughput**, thermals, and sustained power also decide finished tokens. A **stable, high-speed internet connection is critical** — weak or flaky links cause timeouts, reduced priority, and fewer jobs.
 
 Concurrent bands and model picks below are **starting points from one fleet’s experience**, not guarantees. Catalog mins and pricing change — always re-check:
@@ -187,4 +189,4 @@ Please **do not** open issues asking for earnings predictions or hardware buy ad
 
 ## License
 
-Content in this repo is shared for other Darkbloom providers as-is. Darkbloom / Eigen Labs marks and product names belong to their owners. Not affiliated with Eigen Labs unless stated otherwise.
+MIT — see [LICENSE](./LICENSE). Content is independent provider notes, shared as-is. Not affiliated with Darkbloom or Eigen Labs.
