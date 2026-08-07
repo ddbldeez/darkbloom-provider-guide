@@ -1,8 +1,8 @@
 # Darkbloom Provider Guide: Maximize Earnings (Without Breaking Your Node)
 
 **Audience:** other Apple Silicon providers who already installed Darkbloom and want to earn more reliably.  
-**Based on:** a two-machine fleet (Mac Studio M3 Ultra 512 GB + MacBook Pro M5 Max 128 GB) run hard through public alpha (v0.7.x, through **0.7.12**).  
-**Last verified:** 2026-07-22 on Studio `darkbloom-mac15-14` (catalog/pricing re-checked same day).
+**Based on:** a two-machine fleet (Mac Studio M3 Ultra 512 GB + MacBook Pro M5 Max 128 GB) run hard through public alpha (v0.7.x → **0.8.1**).  
+**Last verified:** 2026-08-06 on Studio M3 Ultra 512 GB — provider **0.8.1**, live `catalog` / `status` / `doctor` / `beta list` / `update --check-only`. Pricing not re-fetched this pass.
 
 **Independent advice.** Not affiliated with Darkbloom (darkbloom.dev) or Eigen Labs (eigenlabs.org). Not official documentation. Darkbloom / Eigen Labs names and marks belong to their owners. Use at your own risk.
 
@@ -64,7 +64,7 @@ You want roughly:
 - **No idle auto-logout** killing the console session
 - **Sleep prevented** while serving (provider should self-caffeinate; still check Energy settings)
 - **SIP / Secure Boot / hardened runtime** healthy (doctor flags these)
-- **Up to date:** `darkbloom update --check-only` → current (0.7.12+ as of this writing)
+- **Up to date:** `darkbloom update --check-only` → current (**0.8.1+** as of this writing)
 
 ### Shared / laptop gotchas
 
@@ -83,12 +83,12 @@ You want roughly:
 
 ### Catalog + recommended RAM (verify with `darkbloom models catalog`)
 
-Live catalog floors and practical “runs well warm” guidance (2026-07-22):
+Live catalog floors and practical “runs well warm” guidance (**2026-08-06**, `darkbloom models catalog`):
 
 | Model ID | Role | Weights (est.) | Catalog min RAM | **Recommended unified RAM** | Notes |
 |----------|------|----------------|-----------------|----------------------------|--------|
-| **`gemma-4-26b-qat-4bit`** | **Primary earner** | ~15.6 GB | ≥ **36 GB** | **≥ 48 GB** (sweet: **64–128 GB+**) | Higher $/token (~$0.03 / $0.165 per 1M). Default when you meet min RAM. |
-| **`gpt-oss-20b`** | **Small-box / fill-in** | ~12.1 GB | ≥ **24 GB** | **≥ 32 GB** (fine on **24–36 GB** if that’s all you have) | Lower $/token (~$0.0145 / $0.07). Fits machines that can’t run gemma. Dual-warm on big boxes for extra job types. |
+| **`gemma-4-26b-qat-4bit`** | **Primary earner** | ~15.6 GB | ≥ **36 GB** | **≥ 48 GB** (sweet: **64–128 GB+**) | Catalog shows ~15.6 GB weights. Primary when you meet min RAM. Live $/1M: check console (not re-verified this pass). |
+| **`gpt-oss-20b`** | **Small-box / fill-in** | ~12.1 GB | ≥ **24 GB** | **≥ 32 GB** (fine on **24–36 GB** if that’s all you have) | Catalog shows ~12.1 GB weights. Fits machines that can’t run gemma. Dual-warm on big boxes for extra job types. |
 
 Also in catalog but **not** this playbook’s defaults:
 
@@ -176,10 +176,10 @@ enabled_models = ["gemma-4-26b-qat-4bit", "gpt-oss-20b"]
 # enabled_models = ["gemma-4-26b-qat-4bit"]
 # 24–32 GB small box (below gemma catalog floor):
 # enabled_models = ["gpt-oss-20b"]
-engine_v2_kv_backend = "auto"
-engine_v2_max_concurrent = 8   # Studio-class; see table below
+engine_v2_kv_backend = "auto"  # 0.8.1+ resolves contiguous (see §4 KV notes)
+engine_v2_max_concurrent = 8   # Studio-class operator pick; fleet default after 0.8.1 is 4
 idle_timeout_mins = 0          # NEVER unload when quiet
-kv_quant = false               # still rejected / not a free win as of 0.7.x
+kv_quant = false               # still not a free win as of 0.8.x
 max_model_slots = 2            # 1 if single-model
 mtp = true                     # or: darkbloom beta enable mtp  (Gemma)
 port = 8100
@@ -281,15 +281,28 @@ darkbloom beta enable mtp      # Gemma 4 drafter-assisted decode — faster, tok
 # kv-quant: leave OFF until doctor/beta says it actually works for your version
 ```
 
-As of 0.7.12: **mtp = on is a real speed win** for Gemma; **kv-quant still rejected / not a free earnings boost**.
+As of **0.8.1**: **mtp = on is a real speed win** for Gemma (`darkbloom beta list` → `mtp`); **kv-quant still not a free earnings boost**.
 
-### Prefix / SSD cache (0.7.12+)
+### KV backend + concurrency (0.8.0 → 0.8.1)
 
-v0.7.12 restored exact hybrid SSD prefix reuse for contiguous unquantized Gemma/GPT layouts. That can cut repeated long-prompt latency a lot once the new cache epoch fills.
+| Release | Stock default (`engine_v2_kv_backend = "auto"`) | Concurrent default |
+|---------|-----------------------------------------------|--------------------|
+| **0.8.0** | resolved **paged** | raised toward **8** |
+| **0.8.1** | resolved **contiguous** again | fleet migrated back toward **4** |
 
-- First hours after upgrade may look colder (epoch rotation purges old blocks).
-- Don’t chase this with restarts; let warm traffic rebuild cache.
-- Paged / quantized layouts may still be cold by design.
+**Why the revert (from release notes / [#600](https://github.com/Layr-Labs/d-inference/pull/600)):** under auto-paged, fleet KV capacity was far smaller than contiguous grants → high `token_budget_exhausted`, slow TTFT, client cancels, worse uptime. Paged is still available if you set `engine_v2_kv_backend = "paged"` explicitly (refusal if unbuildable, not silent degrade). Crash-loop backend guard and parity harness remain in the binary.
+
+This guide’s concurrent bands (2–4 mid / 6–8 Studio) are still the reliability playbook. Fleet default 4 is the safe stock path; only raise when the box stays cool and priority-stable.
+
+Confirm live posture: `darkbloom status` / `doctor` → `kv=contiguous|paged` and concurrent.
+
+### Prefix / SSD cache (0.8.1 reality)
+
+On **0.8.1 stock auto → contiguous**, the product **does not construct** the SSD prefix cache on that slot: measured cold-vs-adopted token streams **diverge** on contiguous for the production catalog models, so construction is gated off to avoid wrong answers ([#600](https://github.com/Layr-Labs/d-inference/pull/600)).
+
+- Exact prefix adoption remains a **paged**-backend property for flagship models when you opt into paged.
+- After any upgrade: first hours can look colder for other reasons (warm-up, demand, reputation). Don’t thrash restarts.
+- Older “0.7.12 restored contiguous hybrid SSD reuse” notes are **superseded** by the 0.8.1 gate.
 
 ---
 
@@ -552,9 +565,9 @@ Unhealthy “busy” node:
 
 ## Assumptions & verification
 
-- **Observed:** catalog mins (gpt-oss ≥24 GB, gemma-qat ≥36 GB, gemma-8bit ≥64 GB); live $/1M prices; author fleet gemma-primary; concurrent caps; auto-login; concurrent-24 reduced priority; LaunchAgent MLX env strip; 0.7.12 SSD cache.
+- **Observed (2026-08-06, provider 0.8.1):** catalog mins (gpt-oss ≥24 GB / ~12.1 GB weights, gemma-qat ≥36 GB / ~15.6 GB, gemma full ≥36 GB / ~28 GB, gemma-8bit ≥64 GB); stock `auto` → `kv=contiguous`; MTP beta on; doctor all green / hardware-trusted; concurrent bands from author fleet; auto-login; concurrent-24 reduced priority historically; LaunchAgent MLX env strip; 0.8.1 disables SSD prefix construction on contiguous slots.
 - **Derived:** “recommended RAM” headroom bands (48 GB+ for comfortable gemma; 32 GB+ for gpt-oss); dual-warm only on large machines.
-- **Assumed / re-check live:** demand mix week to week, floors/subsidies, cache-routing flags — run `darkbloom models catalog` after upgrades.
+- **Assumed / re-check live:** demand mix week to week, floors/subsidies, live $/1M prices, paged opt-in safety on your chip — run `darkbloom models catalog` and console after upgrades.
 - Re-check after every major provider release: `darkbloom beta list`, release notes on `Layr-Labs/d-inference`, and your console priority.
 
 **Independent advice — not affiliated with Darkbloom or Eigen Labs; not official docs.**  

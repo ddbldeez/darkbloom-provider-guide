@@ -6,7 +6,7 @@ This repo is for other **Darkbloom providers** who already installed the CLI and
 
 | | |
 |--|--|
-| **Last verified** | 2026-07-22 · provider **0.7.12** |
+| **Last verified** | 2026-08-06 · provider **0.8.1** |
 | **Full guide** | [`guide.md`](./guide.md) |
 | **For coding agents** | [`AGENTS.md`](./AGENTS.md) — point Claude / Cursor / Codex / Grok at this repo |
 | **Source graphics** | [`assets/Darkbloom-Provider-Guide-Graphics.tldraw`](./assets/Darkbloom-Provider-Guide-Graphics.tldraw) |

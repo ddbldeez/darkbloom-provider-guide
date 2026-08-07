@@ -1,6 +1,7 @@
 # Darkbloom provider — earnings-max baseline (example)
 # Copy to ~/.config/darkbloom/provider.toml and edit name / models / concurrent.
-# Verified against public alpha ~0.7.12 — re-check after upgrades.
+# Verified against public alpha ~0.8.1 — re-check after upgrades.
+# 0.8.1: engine_v2_kv_backend=auto resolves contiguous; fleet concurrent default is 4.
 #
 # Fan control is NOT configured here. Optional (any supported Mac):
 #   darkbloom fan diagnose && darkbloom fan enable
