@@ -1,8 +1,8 @@
 # Darkbloom Provider Guide: Maximize Earnings (Without Breaking Your Node)
 
 **Audience:** other Apple Silicon providers who already installed Darkbloom and want to earn more reliably.  
-**Based on:** a two-machine fleet (Mac Studio M3 Ultra 512 GB + MacBook Pro M5 Max 128 GB) run hard through public alpha (v0.7.x → **0.8.1**).  
-**Last verified:** 2026-08-06 on Studio M3 Ultra 512 GB — provider **0.8.1**, live `catalog` / `status` / `doctor` / `beta list` / `update --check-only`. Pricing not re-fetched this pass.
+**Based on:** a two-machine fleet (Mac Studio M3 Ultra 512 GB + MacBook Pro M5 Max 128 GB) run through public alpha (v0.7.x through **0.9.22**).  
+**Last verified:** 2026-10-20 on Studio M3 Ultra 512 GB, macOS 27. Provider **0.9.22** (`darkbloom update --check-only` said up to date). Live checks: `models catalog`, `status`, `doctor`, `beta list`, `idle status`, `enroll --help`, and `GET https://api.darkbloom.dev/v1/pricing`. The previous pass was 2026-08-06 on provider **0.8.1**.
 
 **Independent advice.** Not affiliated with Darkbloom (darkbloom.dev) or Eigen Labs (eigenlabs.org). Not official documentation. Darkbloom / Eigen Labs names and marks belong to their owners. Use at your own risk.
 
@@ -57,14 +57,16 @@ darkbloom status
 
 You want roughly:
 
-- **Trust:** `hardware / online` (or the current top tier that says eligible for traffic)
-- **MDM / enrollment** present if required for your account
+- **Serving authorization:** on macOS 27 this is **App Attest**, not a new MDM profile. Doctor should say the connection is authorized. `trust_level` can still read `self_signed` after that approval. The field that matters is the authorization path (`app_attest`) and reason (`app_attest_verified` when current).
+- **Do not treat `coordinator_acknowledged: false` as offline** if `lifecycle.outcome` is `serving` and jobs are paying. That combination was observed on 0.9.22.
+- **MDM:** `darkbloom enroll` on 0.9.22 says new providers need macOS 27 or later and coordinator-qualified App Attest. It says Darkbloom MDM will be deactivated, and MDM-only providers receive no base rewards. Do not install a new Darkbloom MDM profile on macOS 27. Do not run `darkbloom unenroll` unless you mean to drop MDM. Grandfathered pairs can still serve on older macOS for a while.
 - **Console session logged in** (APNs code-identity needs a real user session)
-- **Automatic login** on dedicated earn boxes (reboot → auto login → attest without a human)
+- **Automatic login** on dedicated earn boxes (reboot, then auto login, then attest without a human)
 - **No idle auto-logout** killing the console session
 - **Sleep prevented** while serving (provider should self-caffeinate; still check Energy settings)
-- **SIP / Secure Boot / hardened runtime** healthy (doctor flags these)
-- **Up to date:** `darkbloom update --check-only` → current (**0.8.1+** as of this writing)
+- **SIP / authenticated root / hardened runtime** healthy (doctor flags these)
+- **Up to date:** `darkbloom update --check-only` (current was **0.9.22** on 2026-10-20)
+- A device-wide `devicecheckd` "Should fetch CD hash" doctor warning was present and did not block pay. Doctor labels it as not attributable to Darkbloom.
 
 ### Shared / laptop gotchas
 
@@ -73,90 +75,117 @@ You want roughly:
 | No user logged in after reboot | Can’t attest / stay trusted | Enable auto-login for the provider user on always-on machines |
 | Lid closed / sleep | Offline or reduced readiness | Keep plugged in, prevent sleep, Power Nap is not enough |
 | Heavy local work competing for RAM/GPU | Timeouts → reduced priority | Cap concurrent; park browsers/AI apps; leave headroom |
-| Unenrolled / software-only trust | Less or no private/fleet traffic | Complete MDM enroll + keep profile installed |
+| App Attest not qualified (`app_attest_qualification_required`) | Online but not paid | Leave the daemon up. Login, enroll, or reinstall does not qualify a build the coordinator has not approved. A new install creates a new Apple key and a cooldown. |
+| MDM-only on a Mac that should be on App Attest | No base rewards, per `darkbloom enroll` help | Move to macOS 27 App Attest. Do not download a new MDM profile to "fix" it. |
 
 ---
 
-## 3. Model strategy (only two models)
+## 3. Model strategy (catalog, then what actually gets routed)
 
-**Serve only these. Nothing else.**
+The August 2026 playbook said serve only `gemma-4-26b-qat-4bit` and `gpt-oss-20b`. That is stale. On 2026-10-20 `darkbloom models catalog` returned **13** active text models. Gemma is still in the catalog. It is not the only model, and it is not the highest output sticker.
 
-### Catalog + recommended RAM (verify with `darkbloom models catalog`)
+**Serve models your chip can keep warm, and that this machine is actually being sent.** A higher sticker that sits idle earns zero. Pin `enabled_models`. Do not leave the allowlist empty if other MLX weights are on disk.
 
-Live catalog floors and practical “runs well warm” guidance (**2026-08-06**, `darkbloom models catalog`):
+### Chip gates (from catalog `required_provider_capabilities`)
 
-| Model ID | Role | Weights (est.) | Catalog min RAM | **Recommended unified RAM** | Notes |
-|----------|------|----------------|-----------------|----------------------------|--------|
-| **`gemma-4-26b-qat-4bit`** | **Primary earner** | ~15.6 GB | ≥ **36 GB** | **≥ 48 GB** (sweet: **64–128 GB+**) | Catalog shows ~15.6 GB weights. Primary when you meet min RAM. Live $/1M: check console (not re-verified this pass). |
-| **`gpt-oss-20b`** | **Small-box / fill-in** | ~12.1 GB | ≥ **24 GB** | **≥ 32 GB** (fine on **24–36 GB** if that’s all you have) | Catalog shows ~12.1 GB weights. Fits machines that can’t run gemma. Dual-warm on big boxes for extra job types. |
+| Model ID | Catalog min RAM | Weights | Gate |
+|----------|-----------------|---------|------|
+| `EigenLabs/Qwen3.8-27B-4bit-mtp` | 36 GB | ~16.3 GB | `apple_m5` and `mlx_nax` |
+| `glm-5.3-flash` | 256 GB | ~182 GB | `apple_m5` and `mlx_nax` |
 
-Also in catalog but **not** this playbook’s defaults:
+Do not advertise those two on an M1, M2, M3, or M4. This M3 Ultra cannot run them. They can still show up in an **account-wide** earnings list when another machine on the account serves them.
 
-| Model ID | Catalog min RAM | Why skip for max-earn default |
-|----------|-----------------|-------------------------------|
-| `gemma-4-26b` | ≥ 36 GB | Larger (~28 GB weights); qat-4bit is the usual network path |
-| `gemma-4-26b-8bit` | ≥ **64 GB** | Rollback path; heavier than qat-4bit |
+`mimo-v2.6-flash-mopd` has no capability gate in the catalog. Floor is 256 GB, weights about 173 GB. It is a large-RAM model, not an M5-only model.
 
-**Do not invert this:** gpt-oss is the **smaller-RAM** model. Gemma is the **better-paid workhorse** once you clear ~36 GB (ideally 48 GB+ for headroom).
+### Catalog floors (2026-10-20)
 
-### Pick by machine size
+Re-check with `darkbloom models catalog`. Weights are the catalog `size_gb`.
 
-| Unified RAM | Serve | Why |
-|-------------|-------|-----|
-| **24–32 GB** | **`gpt-oss-20b` only** | Below gemma’s 36 GB catalog floor |
-| **36–47 GB** | **`gemma-4-26b-qat-4bit` only** (preferred) *or* gpt-oss if gemma is unstable | Meets gemma min; dual-warm is tight |
-| **48–128 GB** | **`gemma-4-26b-qat-4bit` primary**; add **gpt-oss** only if dual-warm stays clean | Gemma earns more per token; gpt-oss is optional fill |
-| **192–512 GB** | **gemma + gpt-oss** dual-warm when healthy | Big iron buys concurrent + dual job types — still **gemma-first** |
+| Model ID | Min RAM | Weights |
+|----------|---------|---------|
+| `EigenLabs/Ternary-Bonsai-2-9B-MLX-2bit` | 24 GB | ~3.5 GB |
+| `gpt-oss-20b` | 24 GB | ~12.1 GB |
+| `Qwen3.5-9B` | 24 GB | ~6.1 GB |
+| `ternary-bonsai-2-27b` | 24 GB | ~8.6 GB |
+| `qwen3.6-35b-a3b-vl-mtp-mxfp8` | 32 GB | ~21.3 GB |
+| `EigenLabs/Qwen3.8-27B-4bit-mtp` | 36 GB | ~16.3 GB |
+| `gemma-4-26b` | 36 GB | ~28.0 GB |
+| `gemma-4-26b-qat-4bit` | 36 GB | ~15.6 GB |
+| `qwen3.5-35b-a3b` | 36 GB | ~20.9 GB |
+| `nvidia-nemotron-3.5-lightning` | 48 GB | ~19.1 GB |
+| `gemma-4-26b-8bit` | 64 GB | ~28.0 GB |
+| `glm-5.3-flash` | 256 GB | ~182 GB |
+| `mimo-v2.6-flash-mopd` | 256 GB | ~173 GB |
 
-Do **not** download, warm, advertise, or leave `enabled_models` open to any other weights for fleet serving. Extra models waste disk, risk bad loads, and do not help earnings under this playbook.
+`GET /v1/pricing` the same day also listed `qwen3.8-flash-next` and `qwen3-vl-30b-a3b-instruct`. They were **not** in this machine's catalog response. Do not advertise an id the catalog does not list.
+
+### Sticker is not demand
+
+Prices are per 1M tokens from `GET https://api.darkbloom.dev/v1/pricing` on 2026-10-20. They move. Refetch before you act. Fallback that day was $0.05 input / $0.20 output.
+
+Highest **output** stickers that day:
+
+| Model | Input | Output | Who can run it |
+|-------|-------|--------|----------------|
+| `EigenLabs/Qwen3.8-27B-4bit-mtp` | $0.035 | $2.20 | M5 + NAX only |
+| `qwen3.5-35b-a3b` | $0.065 | $0.75 | catalog min 36 GB, no chip gate |
+| `qwen3.6-35b-a3b-vl-mtp-mxfp8` | $0.050 | $0.70 | catalog min 32 GB, no chip gate |
+| `ternary-bonsai-2-27b` | $0.075 | $0.50 | catalog min 24 GB |
+| `gemma-4-26b-qat-4bit` (same sticker as the other two gemma ids) | $0.042 | $0.22 | catalog min 36 GB |
+| `Qwen3.5-9B` | $0.080 | $0.13 | catalog min 24 GB |
+| `gpt-oss-20b` | $0.018 | $0.09 | catalog min 24 GB |
+
+Gemma is no longer the best-paid workhorse on sticker. A cheap model that is actually routed still beats an expensive model that stays idle.
+
+### What this M3 Ultra was doing (one process, not a rule)
+
+Observed 2026-10-20, provider 0.9.22, process up 11h21m:
+
+- Allowlist and warm set: `Qwen3.5-9B` and `qwen3.6-35b-a3b-vl-mtp-mxfp8`.
+- `Qwen3.5-9B` was the most recently used model.
+- `qwen3.6-35b-a3b-vl-mtp-mxfp8` stayed resident and idle for that whole process.
+- In the last 500 account earnings rows (about 13:27 to 16:52 UTC), this process's current session was 141 jobs, all `Qwen3.5-9B`, about $0.06. That window is not the full 11 hours.
+- Other provider ids on the same account were paid in that window for `qwen3.6-35b-a3b-vl-mtp-mxfp8` and `EigenLabs/Qwen3.8-27B-4bit-mtp`.
+
+Read that as routing, not as "everyone should serve the 9B." If `darkbloom status` shows a warm model idle for hours while a smaller one is taking the jobs, the idle model is not earning on that box. Change the set with `darkbloom switch` instead of restarting to "clear" it.
+
+### Pick by what the catalog allows
+
+| Your box | Start here | Why |
+|----------|------------|-----|
+| Under the model's catalog min | Do not advertise it | Doctor and the coordinator will not treat it as capacity |
+| M1–M4 | Any catalog model **without** `apple_m5` / `mlx_nax`, inside your RAM | The two gated models above will not run |
+| 24–32 GB | A 24 GB-floor model you can keep warm (`Qwen3.5-9B`, `gpt-oss-20b`, or a Bonsai id) | Gemma's floor is still 36 GB |
+| 36 GB and up | One model you can keep healthy. Add a second only if both stay warm **and** both get jobs | Dual-warm that never routes wastes RAM and reputation |
+| 256 GB and up | Large models (`mimo-v2.6-flash-mopd`, and `glm-5.3-flash` only on M5 + NAX) are eligible by RAM | RAM does not create demand |
 
 Rules of thumb:
 
-- Pin the allowlist in config (see §4) so auto-select cannot pick strays.
-- **Default = gemma** whenever RAM ≥ 36 GB (recommend ≥ 48 GB).
-- **gpt-oss** = small machines *or* second warm model on large machines — not “big RAM only.”
-- If disk is tight, remove every other local MLX weight.
+- Pin the allowlist (see §4).
+- Prefer one model that finishes cleanly over every model that fits.
+- `gemma-4-26b` and `gemma-4-26b-8bit` are heavier than `gemma-4-26b-qat-4bit` at the same or higher floor. They are not the default gemma path.
+- There is no `darkbloom earnings` command. Session counters in `darkbloom status` reset on restart. Account pay is the console, or `GET /v1/provider/account-earnings` with the local device token. The default page is short and **account-wide**. `?limit=500` returned 500 rows on 2026-10-20. Match your session if you need this Mac only. Do not commit the token.
 
-### Start command pattern (earnings-max)
+### Start command pattern
+
+`--model` is repeatable. `--idle-timeout 0` keeps models loaded. Change a running set with `darkbloom switch --model <id>` so you do not drop the coordinator session.
 
 ```bash
-# ≥36–48 GB+ — gemma primary, stay warm forever
+# One catalog model you can keep warm. Swap the id for your RAM and chip.
 darkbloom start \
-  --model gemma-4-26b-qat-4bit \
+  --model Qwen3.5-9B \
   --idle-timeout 0 \
   --local-endpoint
 ```
 
-```bash
-# 24–32 GB only (or gemma won’t load) — gpt-oss only
-darkbloom start \
-  --model gpt-oss-20b \
-  --idle-timeout 0 \
-  --local-endpoint
-```
+**Why `--local-endpoint`:** the same loaded models also serve a local OpenAI endpoint. Useful for a warm-up completion when the warm list is empty. `darkbloom start --help` on 0.9.22 says the local port default is **8000**. The provider backend port in TOML is still **8100**. Use the port `darkbloom local` prints.
 
 ```bash
-# Large box (≈128 GB+) — dual-warm when both stay healthy
-darkbloom start \
-  --model gemma-4-26b-qat-4bit \
-  --model gpt-oss-20b \
-  --idle-timeout 0 \
-  --local-endpoint
-```
-
-**Why `--local-endpoint`:** keeps a local OpenAI endpoint on the same loaded models. Useful for:
-
-- self-tests / “warm kick” if Warm list is empty but models are advertised
-- verifying the engine without waiting for fleet traffic
-
-Kick example (after `darkbloom local` for the key):
-
-```bash
-# Replace KEY and port from `darkbloom local`
+# Replace KEY, port, and model from `darkbloom local` and your allowlist.
 curl -s http://127.0.0.1:8000/v1/chat/completions \
   -H "Authorization: Bearer KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gemma-4-26b-qat-4bit","messages":[{"role":"user","content":"ping"}],"max_tokens":16}'
+  -d '{"model":"Qwen3.5-9B","messages":[{"role":"user","content":"ping"}],"max_tokens":16}'
 ```
 
 ---
@@ -169,22 +198,21 @@ Edit: `~/.config/darkbloom/provider.toml`
 
 ```toml
 [backend]
-# Allowlist only — do not leave empty (empty can auto-select other local weights).
-# ≥48 GB+ dual-warm example:
-enabled_models = ["gemma-4-26b-qat-4bit", "gpt-oss-20b"]
-# 36–128 GB gemma-only (most machines that clear gemma min):
-# enabled_models = ["gemma-4-26b-qat-4bit"]
-# 24–32 GB small box (below gemma catalog floor):
-# enabled_models = ["gpt-oss-20b"]
-engine_v2_kv_backend = "auto"  # 0.8.1+ resolves contiguous (see §4 KV notes)
-engine_v2_max_concurrent = 8   # Studio-class operator pick; fleet default after 0.8.1 is 4
-idle_timeout_mins = 0          # NEVER unload when quiet
-kv_quant = false               # still not a free win as of 0.8.x
-max_model_slots = 2            # 1 if single-model
-mtp = true                     # or: darkbloom beta enable mtp  (Gemma)
+# Allowlist only. Empty can auto-select other local weights.
+# One model until status shows that model actually receiving work.
+enabled_models = ["Qwen3.5-9B"]
+engine_v2_kv_backend = "auto"
+engine_v2_kv_checkpoint_quantization = "balanced"
+engine_v2_kv_quantization = "native"
+# Leave the per-model maps empty unless you have measured a reason to pin them.
+engine_v2_max_concurrent_by_model = {}
+idle_timeout_mins = 0
+max_model_slots = 1
+mtp_mode = "auto"
 port = 8100
+preload_models = []
 startup_preload = true
-startup_preload_timeout_secs = 180
+startup_preload_timeout_secs = 120
 startup_selftest = true
 startup_selftest_fail_closed = false
 
@@ -193,27 +221,35 @@ heartbeat_interval_secs = 5
 private_only = false
 url = "wss://api.darkbloom.dev/ws/provider"
 
+[gemma_optimizations]
+prefill_layer18 = true
+weighted_r1 = true
+
 [provider]
 auto_restart = true
 auto_update = true
-memory_reserve_gb = 4          # toml reserve — keep modest
+memory_reserve_gb = 4
 name = "your-provider-name"
 update_jitter_seconds = 300
 ```
 
+A working 0.9.22 config on 2026-10-20 did **not** contain `engine_v2_max_concurrent`, `kv_quant`, or `mtp = true`. Those 0.8.1 keys are not the baseline anymore. MTP is `mtp_mode = "auto"`. Idle is `idle_timeout_mins = 0`, which matches `darkbloom idle` reporting "always ready". The CLI for that policy is `darkbloom idle keep-loaded` or `darkbloom idle unload-after <minutes>`, then restart.
+
+Autopilot (`darkbloom autopilot`, and a `model_autopilot` block) was installed and **not activated** on that check: status said experimental, waiting, no coordinator control. Do not turn it on to chase earnings.
+
 Then:
 
 ```bash
-darkbloom beta enable mtp
 darkbloom restart
 darkbloom doctor
+darkbloom status
 ```
 
 ### Concurrent caps by machine class (hard-won)
 
 Grouped by **unified RAM** (what the catalog cares about), with example Mac configs. **No pricing** — configs change; verify About This Mac.
 
-#### 36–128 GB · gemma primary · concurrent **2–4**
+#### 36–128 GB · concurrent **2–4** (historical reliability band, not a gemma rule)
 
 | Product | Chip examples | RAM configs in this band |
 |---------|---------------|--------------------------|
@@ -231,9 +267,9 @@ Grouped by **unified RAM** (what the catalog cares about), with example Mac conf
 | Mac Studio | M3 Ultra | 96 GB |
 | Mac Pro | M2 Ultra | 64 GB |
 
-Notes: recommend **≥48 GB** for comfortable gemma headroom (catalog min 36 GB). Higher concurrent mainly **heats**; demand often only 3–4 jobs.
+Notes: higher concurrent mainly heats. Demand is often only a few jobs.
 
-#### 192–512 GB · gemma · concurrent **6–8**
+#### 192–512 GB · concurrent **6–8** (historical reliability band)
 
 | Product | Chip examples | RAM configs in this band |
 |---------|---------------|--------------------------|
@@ -241,7 +277,7 @@ Notes: recommend **≥48 GB** for comfortable gemma headroom (catalog min 36 GB)
 | Mac Studio | M3 Ultra | 256 · 512 GB |
 | Mac Pro | M2 Ultra | 192 GB |
 
-Notes: **gemma-4-26b-qat-4bit** only for this concurrent band. **8** was stable for long token runs.
+Notes: **8** was stable for long token runs on this fleet under 0.8.x. On 0.9.22 the working Studio config did not pin a global concurrent number. Doctor said unknown profiles keep default **4**, and **8** for automatically paged models on M5 Pro, Max, and Ultra. Leave the automatic default until a box is cool and priority-stable.
 
 **Disclaimer — results vary by hardware.** Unified RAM is only one constraint. Memory **bandwidth / throughput**, thermals, and sustained power also decide finished tokens. A **stable, high-speed internet connection is critical** — weak or flaky links cause timeouts, reduced priority, and fewer jobs. Concurrent bands above are starting points from one fleet’s experience, not guarantees.
 
@@ -273,36 +309,32 @@ ps eww -p <PID> | tr ' ' '\n' | grep DARKBLOOM_MLX
 
 If the env keeps disappearing, wrap ProgramArguments with `/usr/bin/env DARKBLOOM_MLX_MEMORY_RESERVE_GB=…` in the LaunchAgent (backup the plist first).
 
-### Beta features
+### Beta features (0.9.22)
 
 ```bash
 darkbloom beta list
-darkbloom beta enable mtp      # Gemma 4 drafter-assisted decode — faster, token-identical
-# kv-quant: leave OFF until doctor/beta says it actually works for your version
 ```
 
-As of **0.8.1**: **mtp = on is a real speed win** for Gemma (`darkbloom beta list` → `mtp`); **kv-quant still not a free earnings boost**.
+Observed `darkbloom beta list` on 0.9.22:
 
-### KV backend + concurrency (0.8.0 → 0.8.1)
+- `gemma-prefill-layer18` default on
+- `gemma-weighted-r1` default on
+- `mtp` = **auto**. Help text: force MTP on for supported targets. Embedded Qwen heads and Gemma 4 26B QAT default on automatically.
 
-| Release | Stock default (`engine_v2_kv_backend = "auto"`) | Concurrent default |
-|---------|-----------------------------------------------|--------------------|
-| **0.8.0** | resolved **paged** | raised toward **8** |
-| **0.8.1** | resolved **contiguous** again | fleet migrated back toward **4** |
+`darkbloom beta enable mtp` is no longer the setup step. Leave `mtp_mode = "auto"` unless you have a measured reason to force it. Confirm with `darkbloom status`: both warm models on this Mac showed `mtp=enabled, active`.
 
-**Why the revert (from release notes / [#600](https://github.com/Layr-Labs/d-inference/pull/600)):** under auto-paged, fleet KV capacity was far smaller than contiguous grants → high `token_budget_exhausted`, slow TTFT, client cancels, worse uptime. Paged is still available if you set `engine_v2_kv_backend = "paged"` explicitly (refusal if unbuildable, not silent degrade). Crash-loop backend guard and parity harness remain in the binary.
+### KV backend (0.8.1 note is historical)
 
-This guide’s concurrent bands (2–4 mid / 6–8 Studio) are still the reliability playbook. Fleet default 4 is the safe stock path; only raise when the box stays cool and priority-stable.
+| When | `engine_v2_kv_backend = "auto"` on the machine we checked |
+|------|--------------------------------------------------------------|
+| 0.8.1 (2026-08-06) | resolved **contiguous**. That release turned paged back off after fleet `token_budget_exhausted` ([#600](https://github.com/Layr-Labs/d-inference/pull/600)). |
+| 0.9.22 (2026-10-20, M3 Ultra) | resolved **paged** for `Qwen3.5-9B` and `qwen3.6-35b-a3b-vl-mtp-mxfp8` (`native-paged-full-recurrent-v1`). Jobs were paying on that posture. |
 
-Confirm live posture: `darkbloom status` / `doctor` → `kv=contiguous|paged` and concurrent.
+Do not copy the 0.8.1 "force contiguous" fix onto 0.9.22. Read `darkbloom status` and doctor. Doctor on this box said unknown profiles keep concurrent default **4**, and **8** for automatically paged models on M5 Pro, Max, and Ultra.
 
-### Prefix / SSD cache (0.8.1 reality)
+### Prefix cache
 
-On **0.8.1 stock auto → contiguous**, the product **does not construct** the SSD prefix cache on that slot: measured cold-vs-adopted token streams **diverge** on contiguous for the production catalog models, so construction is gated off to avoid wrong answers ([#600](https://github.com/Layr-Labs/d-inference/pull/600)).
-
-- Exact prefix adoption remains a **paged**-backend property for flagship models when you opt into paged.
-- After any upgrade: first hours can look colder for other reasons (warm-up, demand, reputation). Don’t thrash restarts.
-- Older “0.7.12 restored contiguous hybrid SSD reuse” notes are **superseded** by the 0.8.1 gate.
+The 0.8.1 contiguous build did not construct the SSD prefix cache, on purpose, because cold and adopted streams diverged ([#600](https://github.com/Layr-Labs/d-inference/pull/600)). That note is about 0.8.1, not a 0.9.22 procedure. After any upgrade, a colder first hour is not a reason to restart in a loop.
 
 ---
 
@@ -323,7 +355,7 @@ On **0.8.1 stock auto → contiguous**, the product **does not construct** the S
 | Concurrent 16–24 “because I have RAM” | Deadlines / reduced priority |
 | Advertising models that never load | `model_not_loaded` self-routes, wasted reputation |
 | Default idle unload (60m) on a quiet network | Every new job pays cold-start tax; you lose TTFT races |
-| Any model besides gemma-4-26b-qat-4bit / gpt-oss-20b | Disk waste, load risk, no benefit under this playbook |
+| Advertising a model your chip cannot run (M5/NAX ids on an M3) | `model_not_loaded` and no pay |
 | Leaving `enabled_models` empty with other weights on disk | Auto-select can advertise junk you never warm |
 | Restarting to “clear cache” without a live failure | Loses warm state + session metrics |
 | Leaving laptop sleep / no auto-login | Invisible offline hours |
@@ -418,8 +450,8 @@ Watchdog promotes only after a stabilization window (~10 min). Predecessor binar
 ### Weekly
 
 - Console: 24h tokens, success rate, priority, payouts.
-- Disk: remove every local model that is not gemma-4-26b-qat-4bit or gpt-oss-20b (`darkbloom models remove <id>`).
-- Confirm auto-login / MDM still healthy after macOS updates.
+- Disk: remove local weights you are not willing to keep out of `enabled_models` (`darkbloom models remove <id>`).
+- Confirm auto-login still works after macOS updates. On macOS 27, confirm App Attest is still the authorization path. Do not reinstall an MDM profile to "fix" trust.
 
 ---
 
@@ -438,7 +470,7 @@ Often **quiet demand** or **temporary reputation lag**, not bad TOML.
 
 1. Check `startup_preload = true` and idle timeout 0.
 2. Local chat completion to force load.
-3. Confirm model id is exactly `gemma-4-26b-qat-4bit` or `gpt-oss-20b` (and is in `enabled_models`).
+3. Confirm the model id matches the catalog and is in `enabled_models`. On an M3, that list must not include an `apple_m5` / `mlx_nax` model.
 
 ### C) Reduced priority / many 120s deadlines
 
@@ -463,7 +495,7 @@ Doctor RAM estimate can lag reality. Prefer live `status` + console if traffic i
 **Results vary.** RAM gets you into the model band; **memory bandwidth / throughput** is what usually drives tokens/sec; thermals and power decide whether you sustain it. **Stable, high-speed internet is critical** — the coordinator cannot route finished work through a flaky link. Same chip + same RAM can earn very differently on different networks or duty cycles.
 
 - **Organic $ scales with real demand and usable bandwidth**, not “I have 512 GB.”
-- Extra RAM mostly buys: **gemma eligibility** (36 GB floor, 48 GB+ recommended), dual-warm gemma + gpt-oss, more concurrent/KV cache, higher **floor tiers** (if floors still exist) — not free money from random other models.
+- Extra RAM mostly buys catalog eligibility (36 GB gets you gemma and the 35B-class models, 256 GB gets you MiMo). It does not buy M5-only models onto an M3, and it does not create demand.
 - **Always-on desktop/Studio** beats a laptop that sleeps, leaves home, or thermal-throttles.
 - Alpha-era floors / subsidies (if any) are **temporary policy**, not a product guarantee. Never finance hardware on subsidy math.
 - Best second node historically for raw $/bandwidth: used high-bandwidth Ultra-class — **only after** your first node shows real utilization for weeks.
@@ -472,44 +504,41 @@ Doctor RAM estimate can lag reality. Prefer live `status` + console if traffic i
 
 ## 9. Copy-paste profiles
 
-### Profile A — Dedicated Studio ≥128 GB (max reliable tokens)
+### Profile A — Dedicated Studio (large RAM, M1–M4)
 
-- Models: **`gemma-4-26b-qat-4bit` + `gpt-oss-20b`** (gemma-first dual-warm) — concurrent bands in this guide are gemma-first; dual-warm only if healthy
-- Recommended RAM: **192–512 GB** class
-- Concurrent: **8**
-- Idle: **0**
-- MTP: **on** (gemma)
+- Models: one catalog model your chip can run. Add a second only after the first is getting jobs. Do not add `EigenLabs/Qwen3.8-27B-4bit-mtp` or `glm-5.3-flash` on an M3.
+- This M3 Ultra on 2026-10-20 was routed `Qwen3.5-9B` while a warm `qwen3.6-35b-a3b-vl-mtp-mxfp8` sat idle. That is an observation, not an order to delete the larger model on every Studio.
+- Concurrent: leave the 0.9.22 automatic default until the box is cool and priority-stable
+- Idle: **0** (`darkbloom idle keep-loaded`)
+- MTP: **`mtp_mode = auto`**
 - `memory_reserve_gb`: **4**
-- MLX env reserve: **~32** on 512 GB (tune to leave OS comfortable)
+- MLX env reserve: **~32** on 512 GB if you still set `DARKBLOOM_MLX_MEMORY_RESERVE_GB` (see the LaunchAgent gotcha)
 - Auto login: **on**
 - Auto update / restart: **on**
-- **Fan control:** optional if automatic cooling lags under continuous load (`darkbloom fan diagnose` first)
+- App Attest: required on macOS 27
+- Fan control: optional (`darkbloom fan diagnose` first)
 
-### Profile B — Laptop / mini ≥48 GB (earn without melting)
+### Profile B — Laptop / mini that clears a 36 GB model
 
-- Model: **`gemma-4-26b-qat-4bit` only** (add gpt-oss only if dual-warm stays clean)
-- Recommended RAM: **48–128 GB** (catalog min for gemma is 36 GB)
-- Concurrent: **2–4**
-- Idle: **0** if always plugged and docked; else 15–30 if you need RAM back when idle
-- MTP: **on**
-- MLX env reserve: **higher** (e.g. 40 on 128 GB) so the machine stays usable
-- Auto login: strongly recommended if it’s a dedicated earn lid-open box
-- **Fan control:** `darkbloom fan diagnose` → optional `fan enable` (experimental; highly useful on continuous laptop serve; also fine on desktops)
+- Model: one model at or under your RAM. Gemma qat still fits at 36 GB. So do `qwen3.5-35b-a3b` and, from 32 GB, `qwen3.6-35b-a3b-vl-mtp-mxfp8`.
+- Concurrent: automatic default. The old 2–4 band is a heat cap, not a TOML key you must set.
+- Idle: **0** if always plugged in; `darkbloom idle unload-after 15` to `30` if you need the RAM back
+- MTP: auto
+- Auto login: on if this is a dedicated lid-open box
+- Fan control: `darkbloom fan diagnose`, then optional `fan enable`
 
-### Profile C — Small Mac 24–32 GB (gpt-oss path)
+### Profile C — Small Mac 24–32 GB
 
-- Model: **`gpt-oss-20b` only** (gemma catalog floor is 36 GB)
-- Recommended RAM: **≥ 32 GB** (catalog min 24 GB)
-- Concurrent: **1–2**
-- Idle: **0** if dedicated; else 15–30 if shared
-- Don’t force gemma below 36 GB
+- Model: a 24 GB-floor catalog id (`Qwen3.5-9B`, `gpt-oss-20b`, or a Bonsai id). Do not force gemma. Its floor is still 36 GB.
+- `qwen3.6-35b-a3b-vl-mtp-mxfp8` starts at 32 GB.
+- Concurrent: leave automatic. If deadlines appear, you are already too wide.
+- Idle: **0** if dedicated
 
-### Profile D — Shared family Mac (minimize friction)
+### Profile D — Shared family Mac
 
-- Model: **gemma** if ≥48 GB, else **gpt-oss**
-- Concurrent: **1–2**
-- Idle unload: **15–30** so the machine frees RAM for humans
-- Don’t fight thermals or UI lag for a few extra tokens
+- One small catalog model
+- Concurrent: do not raise it
+- Idle unload: 15–30 minutes so people can use the Mac
 - Accept lower earnings for lower household pain
 
 ---
@@ -524,9 +553,9 @@ darkbloom logs
 darkbloom report          # upload logs to coordinator when stuck
 darkbloom local          # local endpoint + API key
 darkbloom update
-darkbloom beta enable mtp
-darkbloom restart
-darkbloom models list          # should only show gemma / gpt-oss for this playbook
+darkbloom idle status
+darkbloom switch --model <catalog-id>
+darkbloom models list          # advertised set should match enabled_models, not every weight on disk
 ```
 
 Config: `~/.config/darkbloom/provider.toml`  
@@ -559,16 +588,17 @@ Unhealthy “busy” node:
 
 ## 12. Shareable one-liner for other providers
 
-> Stay hardware-trusted. Gemma-4-26b-qat-4bit is the primary earner (catalog ≥36 GB, recommend ≥48 GB). gpt-oss-20b is for 24–32 GB boxes or dual-warm fill on large machines—not “big RAM only.” Keep models warm (idle 0), enable MTP on gemma, modest concurrent (≈2 small / ≈4 laptop / ≈8 desktop), auto-update. Finished tokens win; failed jobs lose tomorrow’s routing.
+> Stay App Attest authorized on macOS 27 (`self_signed` in trust_level can still be a paying node). Pin catalog models your chip can run. Keep them warm. Leave MTP on auto. Leave concurrency on the automatic default until you are cool and full priority. A higher sticker that sits idle earns nothing. Finished tokens win. Failed jobs lose tomorrow's routing.
 
 ---
 
 ## Assumptions & verification
 
-- **Observed (2026-08-06, provider 0.8.1):** catalog mins (gpt-oss ≥24 GB / ~12.1 GB weights, gemma-qat ≥36 GB / ~15.6 GB, gemma full ≥36 GB / ~28 GB, gemma-8bit ≥64 GB); stock `auto` → `kv=contiguous`; MTP beta on; doctor all green / hardware-trusted; concurrent bands from author fleet; auto-login; concurrent-24 reduced priority historically; LaunchAgent MLX env strip; 0.8.1 disables SSD prefix construction on contiguous slots.
-- **Derived:** “recommended RAM” headroom bands (48 GB+ for comfortable gemma; 32 GB+ for gpt-oss); dual-warm only on large machines.
-- **Assumed / re-check live:** demand mix week to week, floors/subsidies, live $/1M prices, paged opt-in safety on your chip — run `darkbloom models catalog` and console after upgrades.
-- Re-check after every major provider release: `darkbloom beta list`, release notes on `Layr-Labs/d-inference`, and your console priority.
+- **Observed (2026-10-20, provider 0.9.22, M3 Ultra, macOS 27):** 13 catalog models and the floors in §3. `GET /v1/pricing` stickers in §3. App Attest path `app_attest`, reason `app_attest_verified`, `trust_level` still `self_signed`, lifecycle `serving` with `coordinator_acknowledged` false, and jobs paying. `engine_v2_kv_backend=auto` resolved paged on both warm Qwen models. `mtp_mode=auto` and both slots MTP active. Doctor concurrent text: unknown profiles default 4; 8 for automatically paged models on M5 Pro, Max, and Ultra. No `darkbloom earnings` command. Account earnings endpoint is account-wide. This process: 929 requests and 1,363,276 tokens in 11h21m. In the last 500 account rows, this session was 141 `Qwen3.5-9B` jobs and the warm 35B-class Qwen was idle the whole process.
+- **Observed earlier (2026-08-06, provider 0.8.1):** two-model playbook, stock auto resolved contiguous, MTP was a beta switch, MDM was the trust story. Kept above only as history.
+- **Derived:** do not advertise M5/NAX models on this M3. Do not treat sticker rank as demand.
+- **Assumed / re-check live:** next week's demand mix, whether paged stays the stock auto resolution on other chips, and any base-reward or floor policy. Refetch catalog and `/v1/pricing` after upgrades.
+- Re-check after every provider release: `darkbloom doctor`, `darkbloom beta list`, and your console. The PNG cards in the README are still the August graphics. The text is the current source.
 
 **Independent advice — not affiliated with Darkbloom or Eigen Labs; not official docs.**  
 **Not financial advice. Public alpha software. Demand and policy change.**

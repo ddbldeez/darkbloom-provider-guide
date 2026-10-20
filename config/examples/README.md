@@ -2,19 +2,19 @@
 
 | File | Use |
 |------|-----|
-| [`provider-earnings-max.toml`](./provider-earnings-max.toml) | Dedicated earn box baseline (gemma, idle 0, modest concurrent) |
+| [`provider-earnings-max.toml`](./provider-earnings-max.toml) | 0.9.22 shape: one catalog model, idle 0, MTP auto, concurrency left automatic |
 
 Copy into `~/.config/darkbloom/provider.toml`, then:
 
 ```bash
-darkbloom beta enable mtp   # if serving gemma
 darkbloom restart
 darkbloom doctor
+darkbloom status
 ```
 
-Adjust `engine_v2_max_concurrent` and `enabled_models` for your RAM band — see the main [README](../../README.md#04--concurrent-caps-hard-won).
+Change `enabled_models` for your RAM and chip. See the main [guide](../../guide.md). Do not copy an M5-only model onto an M3.
 
-**Fan control** is not in TOML. After the provider is running on a supported Mac:
+**Fan control** is not in TOML. After the provider is running:
 
 ```bash
 darkbloom fan diagnose

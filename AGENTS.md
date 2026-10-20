@@ -49,12 +49,13 @@ Default behavior:
 
 These are load-bearing; if the live catalog contradicts them, **say so** and follow the catalog.
 
-- **Primary model when RAM allows:** `gemma-4-26b-qat-4bit` (catalog floor historically ≥36 GB; recommend ≥48 GB headroom).
-- **Small-RAM / fill-in:** `gpt-oss-20b` (catalog floor historically ≥24 GB) — **not** “big machines only.”
-- **Serve only catalog workhorses** in the allowlist — do not advertise random local MLX hobby weights to the fleet.
-- **Concurrent:** modest (guide: ~2–4 on 36–128 GB class, ~6–8 on 192–512 GB class). Do not jump to 16–24 “because RAM.”
-- **Dedicated earn boxes:** `idle_timeout_mins = 0` so models stay warm.
-- **Gemma speed:** MTP on via `darkbloom beta enable mtp` when serving gemma (if still available).
+- **Allowlist catalog models your chip can run.** The August "only gemma + gpt-oss" rule is stale as of provider 0.9.22 (13 catalog models on 2026-10-20). Gemma is still valid. It is not the only model and not the top output sticker.
+- **Do not advertise** `EigenLabs/Qwen3.8-27B-4bit-mtp` or `glm-5.3-flash` on M1–M4. Catalog requires `apple_m5` and `mlx_nax`.
+- **Sticker is not demand.** A warm model with hours of idle time is not earning. Prefer `darkbloom switch` over a restart loop.
+- **Concurrent:** 0.9.22 doctor keeps unknown profiles at 4 (8 for automatically paged models on M5 Pro, Max, and Ultra). Do not set the old global `engine_v2_max_concurrent` just because the August guide did. Do not jump to 16–24.
+- **Dedicated earn boxes:** `idle_timeout_mins = 0` (`darkbloom idle keep-loaded`).
+- **MTP:** `mtp_mode = "auto"`. Do not require `darkbloom beta enable mtp`.
+- **macOS 27 trust:** App Attest. `trust_level: self_signed` can still be a paying node when the authorization path is `app_attest`. Do not install a new MDM profile. Do not run `darkbloom unenroll` unless the operator asked.
 - **Reliability > throughput cosplay.** Deadlines and reduced priority lose tomorrow’s jobs.
 - **Fan control (optional, all hardware):** experimental `darkbloom fan` — **not** a `provider.toml` key. Not laptop-only; portables often benefit most. Always `darkbloom fan diagnose` before enable; admin password for root helper.
 
@@ -117,7 +118,7 @@ If the user asks you to change the guide for others:
 3. If visuals change, re-export panels from the `.tldraw` source into `assets/cards/01…07.png` (or ask the user to export) so README images match text.
 4. Bump **Last verified** date and provider version when claims were re-checked live.
 5. Keep affiliation disclaimer intact in README Disclaimer + guide header.
-6. Do **not** add pricing tables or “expected $/mo” as facts.
+6. A dated sticker snapshot is allowed when it names the endpoint and the check date. Do **not** add “expected $/mo” or tell anyone to buy a Mac for a rate.
 7. Prefer PR-quality commits: complete sentences, why the change.
 
 ### Card order (README)

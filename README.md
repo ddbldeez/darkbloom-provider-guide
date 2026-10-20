@@ -6,7 +6,7 @@ This repo is for other **Darkbloom providers** who already installed the CLI and
 
 | | |
 |--|--|
-| **Last verified** | 2026-08-06 · provider **0.8.1** |
+| **Last verified** | 2026-10-20 · provider **0.9.22** · macOS 27 · M3 Ultra |
 | **Full guide** | [`guide.md`](./guide.md) |
 | **For coding agents** | [`AGENTS.md`](./AGENTS.md) — point Claude / Cursor / Codex / Grok at this repo |
 | **Source graphics** | [`assets/Darkbloom-Provider-Guide-Graphics.tldraw`](./assets/Darkbloom-Provider-Guide-Graphics.tldraw) |
@@ -60,8 +60,8 @@ Not max concurrent, not max models, not “looks busy.” The coordinator routes
 
 Three layers — fix **#1** before tuning concurrent:
 
-1. **Eligibility** — hardware trust, MDM, console login, online, no sleep  
-2. **Routable capacity** — warm models, current version, good reputation  
+1. **Eligibility** — on macOS 27, App Attest (`app_attest_verified`). `trust_level` may still say `self_signed` while you are serving. MDM is not the new-provider path. Console login, online, no sleep.
+2. **Routable capacity** — warm catalog models your chip can run, current version, jobs actually arriving
 3. **Organic demand** — real network jobs (the binding constraint)
 
 No config turns a quiet network into full-time income.
@@ -70,25 +70,21 @@ No config turns a quiet network into full-time income.
 
 ---
 
-## 03 · Serve only these
+## 03 · Serve what the catalog will route
 
 ![Serve only these](./assets/cards/03-models-only.png)
 
-| Model | Role | Catalog min | Recommended |
-|-------|------|-------------|-------------|
-| **`gemma-4-26b-qat-4bit`** | Primary earner | ≥ **36 GB** | **≥ 48 GB** (64–128 GB+ ideal) |
-| **`gpt-oss-20b`** | Small-box / fill-in | ≥ **24 GB** | **≥ 32 GB** · alone if under 36 GB · optional dual-warm on large boxes |
+The picture above is the August 2026 two-model card. The text here is the 2026-10-20 check. Full table is in [`guide.md`](./guide.md).
 
-Do **not** invert this: gpt-oss is the smaller-RAM model; gemma is the better-paid workhorse when you clear ~36 GB.
+`darkbloom models catalog` returned **13** models. Gemma is still listed. It is not the only model, and it is not the highest output sticker.
 
-Pin an allowlist — do not leave `enabled_models` empty with random weights on disk.
+- Pin `enabled_models`. Do not advertise weights the catalog does not list.
+- `EigenLabs/Qwen3.8-27B-4bit-mtp` and `glm-5.3-flash` require `apple_m5` and `mlx_nax`. Do not put them on an M3.
+- On this M3 Ultra, a warm `qwen3.6-35b-a3b-vl-mtp-mxfp8` sat idle for 11 hours while `Qwen3.5-9B` took the jobs. Sticker is not demand. That is one machine, not an order for every provider.
 
 ```bash
-# ≥48 GB — gemma primary
-darkbloom start --model gemma-4-26b-qat-4bit --idle-timeout 0 --local-endpoint
-
-# 24–32 GB — gpt-oss only
-darkbloom start --model gpt-oss-20b --idle-timeout 0 --local-endpoint
+darkbloom models catalog
+darkbloom start --model Qwen3.5-9B --idle-timeout 0 --local-endpoint
 ```
 
 ---
@@ -97,16 +93,9 @@ darkbloom start --model gpt-oss-20b --idle-timeout 0 --local-endpoint
 
 ![Concurrent caps](./assets/cards/04-concurrent-caps.png)
 
-Grouped by **unified RAM**, with example Mac configs (**no pricing**).
+The card still shows the August RAM bands. Those bands are historical heat caps from this fleet, not gemma-only rules, and not keys you must set on 0.9.22. The machine list is in [`guide.md`](./guide.md).
 
-| Band | Model | Concurrent |
-|------|--------|------------|
-| **36–128 GB** | gemma primary (rec ≥48 GB) | **2–4** |
-| **192–512 GB** | gemma | **6–8** |
-
-Example families in the card: mini M4 Pro 48 · MBP M3/M4/M5 Max bands · Studio Max/Ultra · Mac Pro M2 Ultra · Studio M3 Ultra 256/512.
-
-Higher concurrent mainly **heats**; demand often only 3–4 jobs on laptops. **8** was stable on large Studio-class boxes — not 24.
+Doctor on 0.9.22 said unknown profiles keep default **4**, and **8** for automatically paged models on M5 Pro, Max, and Ultra. The working Studio config did not pin `engine_v2_max_concurrent`. Leave automatic until the box is cool and full priority. Do not jump to 16–24 because you have RAM.
 
 See [Disclaimer](#disclaimer): RAM alone is not enough; bandwidth + network matter.
 
@@ -131,13 +120,13 @@ Full detail: [`guide.md` — Fan control](./guide.md#fan-control-thermals--all-a
 
 Reliable baseline knobs:
 
-- `idle_timeout_mins = 0` (always warm on dedicated earn boxes)  
-- MTP **on** for gemma (`darkbloom beta enable mtp`)  
-- `auto_update` + `auto_restart` **on**  
-- `enabled_models` pinned (gemma and/or gpt-oss only)  
-- concurrent modest (see §04)  
-- hardware trust / online  
-- **thermals:** `darkbloom fan diagnose` → optional `fan enable` if supported and you run warm continuously  
+- `idle_timeout_mins = 0` (`darkbloom idle keep-loaded`)
+- `mtp_mode = "auto"` (do not use the old `beta enable mtp` step)
+- `auto_update` + `auto_restart` on
+- `enabled_models` pinned to catalog ids your chip can run
+- concurrency left automatic (see §04)
+- macOS 27: App Attest authorized, not a new MDM profile
+- thermals: `darkbloom fan diagnose`, then optional `fan enable`  
 
 Example TOML: [`config/examples/provider-earnings-max.toml`](./config/examples/provider-earnings-max.toml)
 
@@ -165,7 +154,7 @@ If priority drops: cut concurrent, stay warm, **wait** — don’t config-thrash
 
 1. **status** — daemon online, warm + trust  
 2. **doctor** — all green  
-3. **warm list** — gemma (or your model) loaded  
+3. **warm list** — the models you meant to serve, and the idle ones are not pretending to earn  
 4. **console** — 24h tokens & priority  
 
 After an update: doctor → confirm warm → leave it alone while cache rebuilds. Don’t thrash restarts.
@@ -181,7 +170,7 @@ darkbloom status
 darkbloom doctor
 darkbloom verify
 darkbloom update --check-only
-darkbloom beta enable mtp
+darkbloom idle status
 darkbloom restart
 darkbloom models catalog
 darkbloom models list
